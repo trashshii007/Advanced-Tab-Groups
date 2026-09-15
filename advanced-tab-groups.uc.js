@@ -752,7 +752,9 @@ class AdvancedTabGroups {
       // For existing groups, also apply favicon color if no color is set
       const currentColor = document.documentElement.style.getPropertyValue(`--tab-group-color-${group.id}`);
       const savedColor = this.savedColors[group.id];
-      if (!currentColor && !savedColor && typeof group._useFaviconColor === "function") {
+      // A native colour code (session-restored, or set by another mod such as zen-tab-wand) counts as set
+      const nativeColor = group.color && !String(group.color).startsWith(group.id) ? group.color : "";
+      if (!currentColor && !savedColor && !nativeColor && typeof group._useFaviconColor === "function") {
         group.color = `${group.id}-favicon`;
         group._useFaviconColor();
       }
