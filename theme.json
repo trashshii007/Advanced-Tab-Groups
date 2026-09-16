@@ -7,6 +7,12 @@
             "include": [
                 "chrome://browser/content/browser.xhtml"
             ]
+        },
+        "folder-look.uc.js": {
+            "include": [
+                "chrome://browser/content/browser.xhtml"
+            ],
+            "loadOrder": 20
         }
     },
     "homepage": "https://github.com/Vertex-Mods/Advanced-Tab-Groups",

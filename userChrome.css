@@ -1,6 +1,9 @@
 /* ==== Tab groups ==== */
 /* https://github.com/Anoms12/Advanced-Tab-Groups */
 /* ====== v3.4.0s ====== */
+/* Zen-folder look for group headers (browser.tabs.groups.folder-look) */
+@import url("folder-look.css");
+
 tab-group:not([split-view-group]) {
     --tab-group-stroke: light-dark(
     color-mix(in srgb, var(--zen-primary-color) 60%, black),
