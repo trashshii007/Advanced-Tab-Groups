@@ -62,6 +62,22 @@ class AdvancedTabGroups {
       "TabGroupCreate",
       this.onTabGroupCreate.bind(this)
     );
+    // The native colour setter fires this; when another mod hands a group a native colour code,
+    // drop our stale vars right away (see syncGroupColorVars)
+    document.addEventListener("TabGroupUpdate", (event) => {
+      const group = event.target;
+      if (group?.localName === "tab-group" && this.hasNativeColor(group)) {
+        this.syncGroupColorVars(group);
+      }
+    });
+    // Zen fires this when a group empties, whatever closed it. Drop its persisted state here so
+    // applySavedColors never waits (waitForElm observes the whole body) on an id that is gone.
+    document.addEventListener("TabGroupRemoved", (event) => {
+      const group = event.target;
+      if (group?.localName === "tab-group" && !group.hasAttribute("split-view-group")) {
+        this.removeSavedGroupState(group.id);
+      }
+    });
 
     // Set up workspace change observer to update group visibility
     this.setupWorkspaceObserver();
@@ -714,18 +730,7 @@ class AdvancedTabGroups {
     closeButton.addEventListener("click", (event) => {
       event.stopPropagation();
       event.preventDefault();
-
-      try {
-        // Remove the group's saved color, icon, and collapsed state before removing the group
-        this.removeSavedColor(group.id);
-        this.removeSavedIcon(group.id);
-        this.removeSavedParentTree(group.id);
-        this.removeSavedCollapsedState(group.id);
-
-        gBrowser.removeTabGroup(group);
-      } catch (error) {
-        console.error("[AdvancedTabGroups] Error removing tab group:", error);
-      }
+      this.deleteGroup(group);
     });
 
     // Remove editor mode class if present (prevent editor mode on new group)
@@ -752,7 +757,8 @@ class AdvancedTabGroups {
       // For existing groups, also apply favicon color if no color is set
       const currentColor = document.documentElement.style.getPropertyValue(`--tab-group-color-${group.id}`);
       const savedColor = this.savedColors[group.id];
-      if (!currentColor && !savedColor && typeof group._useFaviconColor === "function") {
+      // A native colour code (session-restored, or set by another mod) counts as set
+      if (!currentColor && !savedColor && !this.hasNativeColor(group) && typeof group._useFaviconColor === "function") {
         group.color = `${group.id}-favicon`;
         group._useFaviconColor();
       }
@@ -867,6 +873,8 @@ class AdvancedTabGroups {
           <menuitem class="ungroup-tabs" label="Ungroup"/>
           <menuitem class="convert-group-to-folder" 
                     label="Convert to Folder"/>
+          <menuseparator/>
+          <menuitem class="delete-group" label="Delete Group"/>
         </menupopup>
       `);
 
@@ -890,6 +898,7 @@ class AdvancedTabGroups {
       const convertToFolderItem = contextMenu.querySelector(
         ".convert-group-to-folder"
       );
+      const deleteGroupItem = contextMenu.querySelector(".delete-group");
 
       const menuItems = [
         [setGroupColorItem, "_setGroupColor"],
@@ -897,7 +906,8 @@ class AdvancedTabGroups {
         [renameGroupItem, this.renameGroupStart],
         [changeGroupIconItem, this.applyGroupIcon],
         [ungroupTabsItem, this.ungroupTabs],
-        [convertToFolderItem, this.convertGroupToFolder]
+        [convertToFolderItem, this.convertGroupToFolder],
+        [deleteGroupItem, this.deleteGroup]
       ];
 
       for (const menuItem of menuItems) {
@@ -2003,10 +2013,17 @@ class AdvancedTabGroups {
             `--tab-group-color-${group.id}-favicon-invert`,
             colorString
           );
+          // A picker colour left on the root would outrank the favicon one in getGroupColorValue
+          document.documentElement.style.removeProperty(`--tab-group-color-${group.id}`);
+          document.documentElement.style.removeProperty(`--tab-group-color-${group.id}-invert`);
           self.syncGroupColorVars(group);
         
           this.updateIconColor(group, finalColor);
-          this.saveTabGroupColors();
+          // Persist the result: on restart the favicons are not all loaded yet, so recomputing then
+          // gives a different average. applySavedColors replays this and processGroup skips the recompute.
+          const savedColors = self.savedColors;
+          savedColors[group.id] = { favicon: colorString };
+          self.savedColors = savedColors;
 
           return finalColor;
         }
@@ -2060,6 +2077,24 @@ class AdvancedTabGroups {
     }
   }
 
+  // Close the group together with every tab in it (Ungroup only dissolves the row). Persisted
+  // state goes with TabGroupRemoved, so a close the user cancels at a beforeunload prompt keeps it.
+  deleteGroup(group) {
+    try {
+      if (group?.isConnected) gBrowser.removeTabGroup(group);
+    } catch (error) {
+      console.error("[AdvancedTabGroups] Error deleting group:", error);
+    }
+  }
+
+  // Everything ATG persists for a group, keyed by its id
+  removeSavedGroupState(groupId) {
+    this.removeSavedColor(groupId);
+    this.removeSavedIcon(groupId);
+    this.removeSavedParentTree(groupId);
+    this.removeSavedCollapsedState(groupId);
+  }
+
   // New method to convert group to folder
   convertGroupToFolder(group) {
     try {
@@ -2090,7 +2125,8 @@ class AdvancedTabGroups {
       });
 
       if (newFolder) {
-        
+        // A folder has no colour of its own; keep the group's for a later convert back
+        newFolder._atgColorMemo = this.captureGroupColor(group);
 
         // Remove the original group
         try {
@@ -2161,6 +2197,8 @@ class AdvancedTabGroups {
           unpinnedTabsContainer.prepend(newGroup);
 
           newGroup.addTabs(tabsToGroup);
+          // Colour saved by convertGroupToFolder, before processGroup defaults it to favicon mode
+          this.restoreGroupColor(newGroup, folder._atgColorMemo);
 
           if (
             folder &&
@@ -2257,18 +2295,6 @@ class AdvancedTabGroups {
     return "black";
   }
 
-  // Save tab group colors to persistent storage
-  saveTabGroupColors() {
-    try {
-      // This method is called from _useFaviconColor, but the main color saving
-      // is handled in the color picker's handlePanelClose function.
-      // We don't need to override the complex color objects with simple strings.
-      console.log("[AdvancedTabGroups] Color saving handled by color picker");
-    } catch (error) {
-      console.error("[AdvancedTabGroups] Error in saveTabGroupColors:", error);
-    }
-  }
-
   get savedColors() {
     const colors = SessionStore.getCustomWindowValue(window, "tabGroupColors");
     console.log("[AdvancedTabGroups] Retrieved colors from SessionStore:", colors);
@@ -2292,6 +2318,13 @@ class AdvancedTabGroups {
     } catch (error) {
       console.error("[AdvancedTabGroups] Error saving colors to SessionStore:", error);
     }
+  }
+
+  // A colour code that is not ours (blue, zen-workspace-color, a tab-wand rule name…): the native
+  // setter owns the group's vars and anything ATG stored for the group is stale.
+  hasNativeColor(group) {
+    const code = String(group?.color || "");
+    return !!code && !code.startsWith(group.id);
   }
 
   getGroupColorValue(group) {
@@ -2327,8 +2360,6 @@ class AdvancedTabGroups {
       return;
     }
 
-    const color = this.getGroupColorValue(group);
-    const stroke = this.getGroupStrokeValue(group);
     const colorTargets = [
       group,
       group.querySelector(".tab-group-label-container"),
@@ -2336,6 +2367,26 @@ class AdvancedTabGroups {
       group.querySelector(".tab-group-icon"),
       group.querySelector(".tab-group-container"),
     ].filter(Boolean);
+
+    // Another mod (tab-wand's rules on TabGroupCreate, Zen itself) took the colour over: let the
+    // native cascade through and forget ours, or the sidebar and the Library disagree.
+    if (this.hasNativeColor(group)) {
+      const root = document.documentElement.style;
+      for (const suffix of ["", "-invert", "-favicon", "-favicon-invert"]) {
+        root.removeProperty(`--tab-group-color-${group.id}${suffix}`);
+      }
+      // The group element keeps --tab-group-color: that is where the native setter wrote the
+      // colour. It never writes --tab-group-stroke, so that one is ours everywhere.
+      for (const target of colorTargets) {
+        if (target !== group) target.style.removeProperty("--tab-group-color");
+        target.style.removeProperty("--tab-group-stroke");
+      }
+      if (this.savedColors[group.id]) this.removeSavedColor(group.id);
+      return;
+    }
+
+    const color = this.getGroupColorValue(group);
+    const stroke = this.getGroupStrokeValue(group);
 
     if (color) {
       colorTargets.forEach(target => target.style.setProperty("--tab-group-color", color));
@@ -2349,46 +2400,105 @@ class AdvancedTabGroups {
   // Apply saved colors to tab groups
   applySavedColors() {
     try {
-      Object.entries(this.savedColors).forEach(async ([groupId, color]) => {
-        const syncSavedGroup = async () => {
-          const group = await this.waitForElm(`tab-group[id="${groupId}"]`);
-          if (group) {
-            this.syncGroupColorVars(group);
-          }
-        };
-
-        // Handle new format (object with gradientColors, opacity, texture)
-        if (typeof color === 'object' && color.gradientColors) {
-          const previousOpacity = gZenThemePicker.currentOpacity;
-          gZenThemePicker.currentOpacity = color.opacity || 1;
-
-          const gradient = gZenThemePicker.getGradient(color.gradientColors);
-          document.documentElement.style.setProperty(`--tab-group-color-${groupId}`, gradient);
-          document.documentElement.style.setProperty(`--tab-group-color-${groupId}-invert`, gradient);
-
-          gZenThemePicker.currentOpacity = previousOpacity;
-
-          const group = await this.waitForElm(`tab-group[id="${groupId}"]`);
-          if (group) {
-            this.syncGroupColorVars(group);
-          }
-
-          if (color.texture) {
-            if (group) {
-              group.style.setProperty("--group-grain", color.texture);
-              group.setAttribute("show-grain", color.texture > 0);
-            }
-          }
-        }
-        // Handle old format (simple color string) for backward compatibility
-        else if (typeof color === 'string' && color.trim() !== '') {
-          document.documentElement.style.setProperty(`--tab-group-color-${groupId}`, color);
-          document.documentElement.style.setProperty(`--tab-group-color-${groupId}-invert`, color);
-          syncSavedGroup();
-        }
+      Object.entries(this.savedColors).forEach(([groupId, color]) => {
+        this.applySavedColor(groupId, color).catch((error) => {
+          console.error("[AdvancedTabGroups] Error applying saved color:", groupId, error);
+        });
       });
     } catch (error) {
       console.error("[AdvancedTabGroups] Error applying saved colors:", error);
+    }
+  }
+
+  // Apply one savedColors entry: a gradient-picker object, a persisted favicon colour
+  // ({ favicon: "rgb(...)" }) or, for backward compatibility, a plain colour string.
+  async applySavedColor(groupId, color) {
+    const root = document.documentElement.style;
+    // Handle new format (object with gradientColors, opacity, texture)
+    if (typeof color === 'object' && color.gradientColors) {
+      const previousOpacity = gZenThemePicker.currentOpacity;
+      gZenThemePicker.currentOpacity = color.opacity || 1;
+
+      const gradient = gZenThemePicker.getGradient(color.gradientColors);
+      root.setProperty(`--tab-group-color-${groupId}`, gradient);
+      root.setProperty(`--tab-group-color-${groupId}-invert`, gradient);
+
+      gZenThemePicker.currentOpacity = previousOpacity;
+
+      const group = await this.waitForElm(`tab-group[id="${groupId}"]`);
+      if (group) {
+        this.syncGroupColorVars(group);
+      }
+
+      if (color.texture) {
+        if (group) {
+          group.style.setProperty("--group-grain", color.texture);
+          group.setAttribute("show-grain", color.texture > 0);
+        }
+      }
+    }
+    // Favicon mode: replay the last computed average instead of resampling the favicons
+    else if (typeof color === 'object' && typeof color.favicon === 'string' && color.favicon) {
+      root.setProperty(`--tab-group-color-${groupId}-favicon`, color.favicon);
+      root.setProperty(`--tab-group-color-${groupId}-favicon-invert`, color.favicon);
+      const group = await this.waitForElm(`tab-group[id="${groupId}"]`);
+      if (group) {
+        // Another mod may have coloured it natively while we waited; that wins (see syncGroupColorVars)
+        if (this.hasNativeColor(group)) {
+          this.syncGroupColorVars(group);
+          return;
+        }
+        if (!String(group.color || "").endsWith("favicon")) group.color = `${groupId}-favicon`;
+        this.syncGroupColorVars(group);
+        const rgb = color.favicon.match(/\d+/g)?.map(Number);
+        if (rgb?.length >= 3) this.updateIconColor(group, rgb);
+      }
+    }
+    // Handle old format (simple color string) for backward compatibility
+    else if (typeof color === 'string' && color.trim() !== '') {
+      root.setProperty(`--tab-group-color-${groupId}`, color);
+      root.setProperty(`--tab-group-color-${groupId}-invert`, color);
+      const group = await this.waitForElm(`tab-group[id="${groupId}"]`);
+      if (group) {
+        this.syncGroupColorVars(group);
+      }
+    }
+  }
+
+  // Everything that colours a group, independent of its id, so a replacement element (a folder
+  // round-trip creates a new tab-group with a new id) can be coloured the same way.
+  captureGroupColor(group) {
+    if (!group?.id) return null;
+    const saved = this.savedColors[group.id];
+    if (saved) return { saved };
+    const code = String(group.color || "");
+    if (code.endsWith("favicon")) {
+      const rgb = document.documentElement.style.getPropertyValue(`--tab-group-color-${group.id}-favicon`).trim();
+      return rgb ? { saved: { favicon: rgb } } : { favicon: true };
+    }
+    // A native colour code (blue, zen-workspace-color, a tab-wand name…)
+    return code && !code.startsWith(group.id) ? { native: code } : null;
+  }
+
+  // Counterpart of captureGroupColor. Call before processGroup runs on the new group so its
+  // "no colour yet → favicon" default does not kick in.
+  restoreGroupColor(group, memo) {
+    if (!group?.id || !memo) return;
+    try {
+      if (memo.saved) {
+        const colors = this.savedColors;
+        colors[group.id] = memo.saved;
+        this.savedColors = colors;
+        group.color = memo.saved.favicon ? `${group.id}-favicon` : group.id;
+        this.applySavedColor(group.id, memo.saved).catch(() => {});
+      } else if (memo.favicon) {
+        // Nothing to replay; processGroup recomputes it once it has attached _useFaviconColor
+        group.color = `${group.id}-favicon`;
+      } else if (memo.native) {
+        group.color = memo.native;
+      }
+    } catch (error) {
+      console.error("[AdvancedTabGroups] Error restoring group color:", error);
     }
   }
 
