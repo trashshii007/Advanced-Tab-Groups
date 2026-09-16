@@ -1,0 +1,167 @@
+/* Advanced Tab Groups — Folder Look. Restyles ATG headers to match Zen's native zen-folder header.
+   Imported by userChrome.css and driven by folder-look.uc.js. Rules mirror zen-styles/zen-folders.css;
+   !important is needed because ATG's own sheet uses it too. */
+
+@media (-moz-pref("browser.tabs.groups.folder-look")) {
+  /* ---- Collapsed groups keep their active tabs, like a Zen folder ----
+     ATG squashes every non-selected row (max-height: 0) and zen-tab-wand hides aria-hidden ones;
+     tabs the script marked atg-folder-active, and nested groups holding one, are restored here. */
+  #tabbrowser-tabs tab-group[collapsed]:not([split-view-group]) .tab-group-container tab[atg-folder-active] {
+    display: flex !important;
+    max-height: 40px !important;
+    min-height: var(--tab-min-height) !important;
+    opacity: 1 !important;
+    margin-block: var(--tab-block-margin, 0) !important;
+    pointer-events: auto !important;
+  }
+
+  #tabbrowser-tabs tab-group[collapsed]:not([split-view-group]) .tab-group-container > tab-group:not([split-view-group]):has(tab[atg-folder-active]) {
+    max-height: none !important;
+    opacity: 1 !important;
+    margin-block: 2px 0 !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
+  }
+
+  /* #tabbrowser-tabs prefix only raises specificity above ATG's own !important rules */
+  #tabbrowser-tabs tab-group[atg-folder-look] {
+    /* Zen's folder formulas with the group's own colour in place of --zen-primary-color.
+       Must be computed here: the label container resets --tab-group-color to transparent. */
+    /* Prefer the native colour code (--tab-group-background-color, untouched by ATG's favicon sync)
+       so the icon matches the context-menu swatch; fall back to --tab-group-color for hex colours. */
+    --atg-folder-tint: var(--tab-group-background-color, var(--tab-group-color, var(--zen-primary-color)));
+    --zen-folder-behind-bgcolor: light-dark(color-mix(in srgb, var(--atg-folder-tint) 60%, gray), color-mix(in srgb, var(--atg-folder-tint) 60%, #c1c1c1));
+    --zen-folder-front-bgcolor: light-dark(color-mix(in srgb, var(--atg-folder-tint), white 70%), color-mix(in srgb, var(--atg-folder-tint), black 40%));
+    --zen-folder-stroke: light-dark(color-mix(in srgb, var(--atg-folder-tint) 50%, black), color-mix(in srgb, var(--atg-folder-tint) 35%, #ebebeb));
+
+    & > .tab-group-label-container {
+      position: relative !important;
+      flex: 0 0 auto !important;
+      --tab-group-color-pale: transparent !important;
+      --tab-group-color: transparent !important;
+      height: calc(var(--tab-margin-block) * 2 + var(--tab-min-height)) !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      padding-inline: var(--tab-group-label-padding) !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      font-weight: 600 !important;
+      background-color: transparent !important;
+      border-radius: 0 !important;
+
+      :root[zen-sidebar-expanded="true"] & {
+        padding-inline-end: calc(var(--tab-group-label-padding) * 2) !important;
+      }
+
+      :root:not([zen-sidebar-expanded]) & {
+        width: var(--tab-min-width) !important;
+      }
+
+      /* ATG's colour swatch / marker and hover buttons are not part of the folder look */
+      & > .tab-group-icon-container,
+      & > .tab-close-button,
+      & > .tab-group-folder-button {
+        display: none !important;
+      }
+
+      /* Zen's hover pill lives on ::before, not the container itself */
+      &::before {
+        content: "" !important;
+        position: absolute !important;
+        top: 2px !important;
+        left: 2px !important;
+        width: calc(100% - 4px) !important;
+        height: calc(100% - 4px) !important;
+        background-color: transparent !important;
+        border-radius: var(--border-radius-medium) !important;
+        z-index: -1 !important;
+      }
+
+      &:hover::before {
+        background-color: var(--tab-background-color-hover) !important;
+      }
+
+      &::after {
+        display: none !important;
+      }
+
+      & > label.tab-group-label,
+      & > #tab-label-input {
+        padding: 0 0 0 32px !important;
+        width: 100% !important;
+      }
+
+      & > label.tab-group-label {
+        border: none !important;
+        color: var(--toolbar-color) !important;
+        margin: 0 !important;
+        font-weight: 600 !important;
+        align-self: center !important;
+        text-align: start !important;
+        align-content: center !important;
+        height: 100% !important;
+        mask-image: none !important;
+        background: transparent !important;
+
+        :root:not([zen-sidebar-expanded]) & {
+          padding: 0 !important;
+          max-width: 100% !important;
+          visibility: hidden !important;
+        }
+      }
+
+      .tab-group-folder-icon {
+        width: 28px;
+        height: 28px;
+        align-content: center;
+        position: absolute;
+        pointer-events: none;
+
+        :root[zen-sidebar-expanded] & {
+          left: 5px;
+        }
+
+        & svg {
+          filter: contrast(125%);
+          transform: translate(-1px, -1px);
+
+          :root:not([zen-sidebar-expanded]) & {
+            transition: transform 0.1s ease;
+
+            &[state="open"] {
+              transform: translate(-2px);
+            }
+          }
+
+          & image {
+            fill-opacity: 0.9;
+            -moz-context-properties: fill, fill-opacity;
+            fill: color-mix(in srgb, var(--zen-folder-stroke) 50%, currentColor);
+            transform: translate(8.5px, 10.5px);
+          }
+
+          & g,
+          & rect,
+          & path {
+            transition:
+              transform 0.3s cubic-bezier(0.42, 0, 0, 1),
+              opacity 0.3s cubic-bezier(0.42, 0, 0, 1);
+          }
+
+          &[state="open"] .back {
+            transform: skewX(16deg) translate(-4px, 2px) scale(0.85);
+          }
+
+          &[state="open"] :is(.front, .dots, .icon) {
+            transform: skewX(-16deg) translate(8px, 2px) scale(0.85);
+          }
+
+          & .icon { opacity: 1; }
+          & .dots { opacity: 0; }
+          &[active="true"] .icon { opacity: 0; }
+          &[active="true"] .dots { opacity: 1; }
+        }
+      }
+    }
+  }
+}

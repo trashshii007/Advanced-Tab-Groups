@@ -1,0 +1,57 @@
+/* Advanced Tab Groups — Folder Look, Zen Library (Spaces tab) half. Linked into the <zen-library>
+   shadow root by folder-look.uc.js with its own <link>: ATG's zen-library.css is only injected by
+   ATG's Library monkey-patch, which zen-library blocks when zen.library.compat.advanced-tab-groups is
+   on. Mirrors zen-library's own .library-workspace-item.folder header rules; !important where it
+   competes with the ATG / zen-library group rules. Not gated on the pref (-moz-pref is chrome-only and
+   this is an author sheet): the script strips [atg-folder-look] / .atg-folder-active when it is off. */
+
+.library-workspace-tab-group[atg-folder-look] {
+  /* Zen's folder colour formulas with the group's colour (set inline by the Library renderer) */
+  --atg-folder-tint: var(--atg-tab-group-color, var(--zen-primary-color));
+  --zen-folder-behind-bgcolor: light-dark(color-mix(in srgb, var(--atg-folder-tint) 60%, gray), color-mix(in srgb, var(--atg-folder-tint) 60%, #c1c1c1));
+  --zen-folder-front-bgcolor: light-dark(color-mix(in srgb, var(--atg-folder-tint), white 70%), color-mix(in srgb, var(--atg-folder-tint), black 40%));
+  --zen-folder-stroke: light-dark(color-mix(in srgb, var(--atg-folder-tint) 50%, black), color-mix(in srgb, var(--atg-folder-tint) 35%, #ebebeb));
+}
+
+.library-workspace-tab-group[atg-folder-look] > .library-workspace-item.atg-tab-group {
+  gap: 0 !important;
+  padding-inline-start: 0 !important;
+  min-height: var(--tab-min-height) !important;
+  height: auto !important;
+  margin-block: 2px !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  color: inherit !important;
+  overflow: visible !important;
+}
+
+.library-workspace-tab-group[atg-folder-look] > .library-workspace-item.atg-tab-group > .atg-tab-group-icon {
+  display: none !important;
+}
+
+.library-workspace-tab-group[atg-folder-look] > .library-workspace-item.atg-tab-group > .item-label {
+  font-weight: 600 !important;
+  padding-inline-start: 32px !important;
+  color: inherit !important;
+  mask-image: linear-gradient(to left, transparent, black var(--tab-label-mask-size, 2em)) !important;
+}
+
+/* Collapsed groups keep their active tabs (rows/headers the script tagged atg-folder-active),
+   overriding ATG's collapsed row rule; nested groups holding one are unfolded too. */
+.library-workspace-tab-group.collapsed .library-workspace-tab-group-content .library-workspace-item.atg-folder-active {
+  max-height: var(--tab-min-height, 36px) !important;
+  min-height: var(--tab-min-height) !important;
+  opacity: 1 !important;
+  margin-block: 2px !important;
+  pointer-events: auto !important;
+}
+
+.library-workspace-tab-group.collapsed .library-workspace-tab-group-content > .library-workspace-tab-group:has(.library-workspace-item.atg-folder-active) {
+  margin-block: 4px 2px !important;
+}
+
+/* The wrapper's .collapsed already drives the icon state; hide ATG's hover buttons like a folder */
+.library-workspace-tab-group[atg-folder-look] > .library-workspace-item.atg-tab-group > .atg-tab-group-close-button,
+.library-workspace-tab-group[atg-folder-look] > .library-workspace-item.atg-tab-group > .atg-tab-group-folder-button {
+  display: none !important;
+}
